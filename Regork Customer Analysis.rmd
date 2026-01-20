@@ -1,0 +1,661 @@
+---
+title: "Regork Customer Analysis"
+author: "Co Nguyen"
+date: "2024-04-12"
+output: html_document
+---
+
+::: {style="text-align: center;"}
+
+<h2>**Regork and Month-to-month contract Customers**</h2>
+:::
+#  {.tabset .tabset-fade .tabset-pills}
+
+## Introduction
+**Background:**
+
+* Regork has entered the telecommunications market, offering services such as internet, phone, and online streaming.
+
+* Given that acquiring new customers is significantly more costly than retaining existing ones, our data analytics team needs to analyze customer data and develop a predictive model to determine if customers are likely to churn in the future. This will enable Regork to take proactive measures, such as offering incentives, to retain them.
+
+**Problem:**
+
+* Customers tend to leave Regork Telecom within the first year of service, especially those who choose to pay through Electronic check or Mailed check on a month-to-month basis.
+
+**Short explanation:**
+
+* In the analysis that follows, we examined customer retention data sourced from the "customer_retention.csv" file and developed a predictive model that performs well in forecasting customer retention.
+
+* Throughout the analysis, you'll discover details on the required packages, data sourcing, and preparation steps. Additionally, an in-depth exploration of trends and relationships among predictor variables and the response variable precedes the development of the predictive model. We evaluated three classification methods: logistic regression, decision tree, and random forest. Our conclusions and rationale are highlighted within the summary section.
+
+**Proposed solution:**
+
+* This model holds significant importance for various future analyses across different functional areas of our company. For instance, the marketing team could utilize it to strategize promotions for beginning customers who have less than 1 year of using service.
+
+## Analysis {.tabset .tabset-fade .tabset-pills}
+
+### 1.Data Preparation & Exploratory Data Analysis {.tabset .tabset-fade .tabset-pills}
+
+#### A.Packages Required
+In order to reproduce the results contained within this report you will need to install and load the following packages:
+
+* tidymodels: for modeling and machine learning
+* tidyverse: designed for data manipulation, exploration, and visualization
+* baguette: for fitting and tuning bagged ensembles
+* vip:provides methods for variable importance assessment in predictive models
+* pdp: for visualizing the marginal effect of a predictor variable
+* here: provides a way to create file paths
+* kernlab: provides functions for support vector machines
+* ggplot2: for creating plots
+* ranger: for fitting random forest models
+* dplyr: for data manipulation
+* rpart.plot: used for plotting decision trees
+
+
+```{r, message=FALSE, warning = FALSE}
+library(tidymodels)
+library(tidyverse)
+library(baguette)
+library(vip)
+library(pdp)
+library(here)
+library(kernlab)
+library(ggplot2)
+library(ranger)
+library(dplyr)
+library(rpart.plot)
+```
+
+#### B.Data Preparation
+
+Clean data
+
+```{r, message=FALSE, warning = FALSE}
+customer_retention <- read.csv("customer_retention.csv")
+customer_retention <- mutate(customer_retention, Status = factor(Status))
+customer_retention <- na.omit(customer_retention)
+```
+
+* Status: Whether the customer is Current or has Left.
+* Gender: Whether the customer is a male or a female
+* SeniorCitizen: Whether the customer is a senior citizen or not (1, 0)
+* Partner: Whether the customer has a partner or not (Yes, No)
+* Dependents: Whether the customer has dependents or not (Yes, No)
+* Tenure: Number of months the customer has stayed with the company
+* PhoneService: Whether the customer has a phone service or not (Yes, No)
+* MultipleLines: Whether the customer has multiple lines or not (Yes, No, No phone service)
+* InternetService: Customer’s internet service provider (DSL, Fiber optic, No)
+* OnlineSecurity: Whether the customer has online security or not (Yes, No, No internet service)
+* OnlineBackup: Whether the customer has online backup or not (Yes, No, No internet service)
+* DeviceProtection: Whether the customer has device protection or not (Yes, No, No internet service)
+* TechSupport: Whether the customer has tech support or not (Yes, No, No internet service)
+* StreamingTV : Whether the customer has streaming TV or not (Yes, No, No internet service)
+* StreamingMovies: Whether the customer has streaming movies or not (Yes, No, No internet service)
+* Contract: The contract term of the customer (Month-to-month, One year, Two year)
+* PaperlessBilling: Whether the customer has paperless billing or not (Yes, No)
+* PaymentMethod: The customer’s payment method (Electronic check, Mailed check, Bank transfer (automatic), Credit card (automatic))
+* MonthlyCharges: The amount charged to the customer monthly
+* TotalCharges: The total amount charged to the customer
+
+
+```{r, message=FALSE, warning = FALSE}
+current_customers <- filter(customer_retention, Status == "Current")
+left_customers <- filter(customer_retention, Status == "Left")
+```
+
+#### C.Exploratory Data Analysis
+
+**Compute the proportion of Status = Current vs. Status = Left in this data set**
+
+```{r, message=FALSE, warning = FALSE}
+customer_retention %>%
+  count(Status) %>%
+  mutate(prop = n / sum(n))
+```
+
+This simply tells us that 73.4% of the customers still use services and 26.6% did.
+
+
+```{r, message=FALSE, warning = FALSE}
+ggplot(customer_retention, aes(Status, Tenure)) +
+  ggtitle("Tenure vs. Status") +
+  geom_violin() +
+  theme_minimal()
+```
+
+The findings indicate that customers tend to churn within the first year of service usage, with a decreasing likelihood of churn as their usage duration extends.
+
+**Relationship of Tenure and Payment Method**
+
+1) With current customers
+
+```{r, message=FALSE, warning = FALSE}
+ggplot(current_customers, aes(Tenure)) +
+  geom_bar(fill = "#3F918C") +
+  facet_wrap(~PaymentMethod) +
+  ggtitle("Tenure vs. Payment Method (current)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Count of Customers", x = "Length of Tenure (months)") +
+  theme_minimal()
+```
+
+2) With left customers
+
+```{r, message=FALSE, warning = FALSE}
+ggplot(left_customers, aes(Tenure)) +
+  geom_bar(fill = "#EC7369") +
+  facet_wrap(~PaymentMethod) +
+  ggtitle("Tenure vs. Payment Method (left) ") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(y = "Count of Customers", x = "Length of Tenure (months)") +
+  theme_minimal()
+```
+
+```{r, message=FALSE, warning = FALSE}
+# Boxplot
+ggplot(customer_retention, aes(x = PaymentMethod, y = Tenure, fill = Status)) +
+  geom_boxplot() +
+  labs(x = "Payment Method", y = "Tenure", fill = "Status") +
+  ggtitle("Tenure vs Payment Method by Status") +
+  scale_fill_viridis_d() +
+  theme_minimal()
+
+# Violin plot
+ggplot(customer_retention, aes(x = PaymentMethod, y = Tenure, fill = Status)) +
+  geom_violin() +
+  labs(x = "Payment Method", y = "Tenure", fill = "Status") +
+  ggtitle("Tenure vs Payment Method by Status") +
+  scale_fill_viridis_d() +
+  theme_minimal()
+```
+
+These findings reveal that customers paying via electronic check exhibit the highest turnover rate, with over 200 customers churning within the initial stages of the first year.
+
+
+**Relationship of Contract and Regork services**
+
+Following is an analysis on the relationship between different service and contract. 
+
+```{r, message=FALSE, warning = FALSE}
+# Contract and offering services analysis
+customer_retention %>% 
+  ggplot(aes(Contract, fill=PhoneService))+
+  geom_bar() +
+  labs(title = "Contract and Phone Service Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=InternetService))+
+  geom_bar()+
+  labs(title = "Contract and Internet Service Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=OnlineSecurity))+
+  geom_bar()+
+  labs(title = "Contract and Online Security Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=OnlineBackup))+
+  geom_bar()+
+  labs(title = "Contract and Online Backup Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=DeviceProtection))+
+  geom_bar()+
+  labs(title = "Contract and DeviceProtection Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=TechSupport))+
+  geom_bar()+
+  labs(title = "Contract and Tech Support Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=StreamingTV ))+
+  geom_bar()+
+  labs(title = "Contract and StreamingTV Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Contract, fill=StreamingMovies))+
+  geom_bar()+
+  labs(title = "Contract and Streaming Movies Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+```
+
+* Phone Service: Approximately 3500 customers use Regork's phone service on a month-to-month basis
+* Internet Service: Roughly 2000 customers opt for Fiber optic internet service on a month-to-month basis
+* Online Security: Over 600 customers opt for a two-year contract for this service
+* Online Backup: More than 1000 customers subscribe to this service on a month-to-month basis
+* Device Protection : More than 1000 customers subscribe to this service on a month-to-month basis
+* Tech Support: Approximately 800 customers opt for a two-year contract for this service
+* Streaming TV: Around 1250 customers purchase this service on a month-to-month basis
+* Streaming Movies: More than 1250 customers purchase this service on a month-to-month basis
+
+**Relationship of Status and Regork services**
+
+```{r, message=FALSE, warning = FALSE}
+# Status and offering services analysis
+customer_retention %>% 
+  ggplot(aes(Status, fill=PhoneService))+
+  geom_bar() +
+  labs(title = "Status and Phone Service Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=InternetService))+
+  geom_bar()+
+  labs(title = "Status and Internet Service Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=OnlineSecurity))+
+  geom_bar()+
+  labs(title = "Status and Online Security Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=OnlineBackup))+
+  geom_bar()+
+  labs(title = "Status and Online Backup Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=DeviceProtection))+
+  geom_bar()+
+  labs(title = "Status and DeviceProtection Use")+
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=TechSupport))+
+  geom_bar()+
+  labs(title = "Status and Tech Support Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=StreamingTV ))+
+  geom_bar()+
+  labs(title = "Status and StreamingTV Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+
+customer_retention %>% 
+  ggplot(aes(Status, fill=StreamingMovies))+
+  geom_bar()+
+  labs(title = "Status and Streaming Movies Use") +
+  scale_fill_viridis_d(option = "magma")+
+  theme_minimal()
+```
+
+* Phone Service: More than 1500 customers have discontinued this service.
+* Internet Service: Most leaving customers has used Fiber optic.
+* Online Security: Online security does not appear to be a primary factor driving customer churn at Regork.
+* Online Backup: Approximately 500 customers have discontinued using this service at Regork.
+* Device Protection : Around 600 customers have discontinued using this service at Regork.
+* Tech Support: Tech support does not appear to be a primary factor driving customer churn at Regork.
+* Streaming TV: While approximately 1800 customers use this service, 800 of them have discontinued it.
+* Streaming Movies: While around 1800 customers use this service, 800 of them has leave this service
+
+
+### 2.Machine Learning {.tabset .tabset-fade .tabset-pills}
+
+Using stratified sampling split the data into a training set and a test set. Use a 70/30 split (70% for the training data & 30% for the test set). Set the seed to 123 so that we all get the same split. Assess thedistribution of the dependent variable
+
+```{r, message=FALSE, warning = FALSE}
+# split data into train / test sets
+set.seed(123)
+split <- initial_split(customer_retention, prop = 0.7, strata = "Status")
+customer_retention_train <- training(split)
+customer_retention_test <- testing(split)
+```
+
+```{r, message=FALSE, warning = FALSE}
+customer_retention_train %>%
+  count(Status) %>%
+  mutate(prop = n / sum(n))
+```
+
+```{r, message=FALSE, warning = FALSE}
+customer_retention_test %>%
+  count(Status) %>%
+  mutate(prop = n / sum(n))
+```
+
+* **Logistic Regression AUC** : 0.8460251	
+* **Decision Tree** : 0.8032738 (After Tuning: 0.8142791)
+* **Random Forest** : 0.8353798 (After tuning: 0.8396694)
+
+#### Logistic Regression
+Apply a logistic regression model using all predictor variables while performing a 5-fold cross validation procedure.
+
+```{r, message=FALSE, warning = FALSE}
+# create resampling procedure
+set.seed(123)
+kfold <- vfold_cv(customer_retention_train, v = 5)
+
+# train model via cross validation
+lr_results <- logistic_reg() %>%
+  fit_resamples(Status ~ ., kfold)
+
+# AUC
+collect_metrics(lr_results)
+```
+
+```{r, message=FALSE, warning = FALSE}
+lr_final_fit <- logistic_reg() %>%
+  fit(Status ~ ., data = customer_retention_train)
+
+# confusion matrix
+lr_final_fit %>%
+   predict(customer_retention_test) %>%
+   bind_cols(customer_retention_test %>% select(Status)) %>%
+   conf_mat(truth = Status, estimate = .pred_class)
+```
+
+**Analyzed and discussed the AUC confusion matrices are analyzed and discussed:**
+
+We see a greater number of observations where our model predicts staying (Prediction = Current) but the customer left (Truth = Left) than where our model predicts leaving (Prediction = Left) but the customer stay (Truth = Current). One way to think about this is that our model is more optimistic– it predicts more false staying than false leaving
+
+
+#### Decision Tree
+
+```{r, message=FALSE, warning = FALSE}
+# Step 1: create decision tree model object
+dt_mod <- decision_tree(mode = "classification") %>%
+  set_engine("rpart")
+
+# Step 2: create model recipe
+model_recipe <- recipe(Status ~ ., data = customer_retention_train)
+
+# Step 3: fit model workflow
+dt_fit <- workflow() %>%
+  add_recipe(model_recipe) %>%
+  add_model(dt_mod) %>%
+  fit(data = customer_retention_train)
+
+dt_fit
+```
+
+```{r, message=FALSE, warning = FALSE}
+rpart.plot::rpart.plot(dt_fit$fit$fit$fit)
+```
+
+If we look at the dt_fit model output, or use rpart.plot::rpart.plot() as shown in the reading, we see that the first node a split is made on is on the **Contract** variable. This implies that the **Contract** variable is the most significant predictor for outcomes in the decision tree model. This variable is used at the first node to split the dataset into smaller subsets, indicating its importance in determining the final outcome or classification.
+
+
+```{r, message=FALSE, warning = FALSE}
+# create resampling procedure
+set.seed(123)
+kfold <- vfold_cv(customer_retention_train, v = 5)
+
+# train model
+dt_results <- fit_resamples(dt_mod, model_recipe, kfold)
+
+# model results
+collect_metrics(dt_results)
+```
+
+We see that the Decision Tree AUC (roc_auc) is 0.8032738. The Logistic Regression AUC of 0.8460251 so our default decision tree model is not performing any better; however, maybe tuning our model will improve performance
+
+**TUNING**
+
+* Tune the cost complexity values with the default cost_complexity() values.
+* Tune the depth of the tree with the default tree_depth() values.
+* Tune the minimum number of observations in a node with the default min_n() values.
+* Assess a total of 5 values from each parameter (levels = 5).
+
+
+```{r, message=FALSE, warning = FALSE}
+dt_mod <- decision_tree(
+  mode = "classification",
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+) %>%
+  set_engine("rpart")
+
+# create the hyperparameter grid
+dt_hyper_grid <- grid_regular(
+  cost_complexity(),
+  tree_depth(),
+  min_n(),
+  levels = 5
+)
+
+# train our model across the hyper parameter grid
+set.seed(123)
+dt_results <- tune_grid(dt_mod, model_recipe, resamples = kfold, grid = dt_hyper_grid)
+
+# get best results
+show_best(dt_results, metric = "roc_auc", n = 5)
+```
+
+```{r, message=FALSE, warning = FALSE}
+# get best hyperparameter values
+dt_best_model <- select_best(dt_results, metric = 'roc_auc')
+
+# put together final workflow
+dt_final_wf <- workflow() %>%
+  add_recipe(model_recipe) %>%
+  add_model(dt_mod) %>%
+  finalize_workflow(dt_best_model)
+
+# fit final workflow across entire training data
+dt_final_fit <- dt_final_wf %>%
+  fit(data = customer_retention_train)
+
+# confusion matrix
+dt_final_fit %>%
+   predict(customer_retention_test) %>%
+   bind_cols(customer_retention_test %>% select(Status)) %>%
+   conf_mat(truth = Status, estimate = .pred_class)
+```
+
+**Analyzed and discussed the AUC confusion matrices are analyzed and discussed:**
+
+We can see that tuning our decision tree model improves our AUC score to 0.8142791, but it's still less than the Logistic Regression AUC
+
+Like Logistic Regression AUC, this model is more optimistic– it predicts more false staying than false leaving. The predicts staying (Prediction = Current) but the customer left (Truth = Left) is higher than predicts leaving (Prediction = Left) but the customer stay (Truth = Current)
+
+#### Random Forest
+
+```{r, message=FALSE, warning = FALSE}
+# create random forest model object and use the ranger package for the engine
+rf_mod <- rand_forest(mode = "classification") %>%
+  set_engine("ranger")
+
+# train model
+rf_results <- fit_resamples(rf_mod, model_recipe, kfold)
+
+# model results
+collect_metrics(rf_results)
+```
+
+**TUNING**
+
+* trees: tune for values ranging from 50 to 200
+* mtry: tune for values ranging from 1 to 15
+* min_n: tune for values ranging from 1 to 15
+* Assess a total of 5 values from each parameter (levels = 5)
+
+```{r, message=FALSE, warning = FALSE}
+# create random forest model object with tuning option
+rf_mod <- rand_forest(
+  mode = "classification",
+  trees = tune(),
+  mtry = tune(),
+  min_n = tune()
+) %>%
+  set_engine("ranger", importance = "impurity")
+
+# create the hyperparameter grid
+rf_hyper_grid <- grid_regular(
+  trees(range = c(50, 200)),
+  mtry(range = c(1, 15)),
+  min_n(range = c(1, 15)),
+  levels = 5
+)
+
+# train our model across the hyper parameter grid
+set.seed(123)
+rf_results <- tune_grid(rf_mod, model_recipe, resamples = kfold, grid = rf_hyper_grid)
+
+# model results
+show_best(rf_results, metric = "roc_auc")
+```
+
+We see by tuning our random forest model we experience a slight increase in the AUC to 0.8396694
+
+```{r, message=FALSE, warning = FALSE}
+# get optimal hyperparameters
+rf_best_hyperparameters <- select_best(rf_results, metric = "roc_auc")
+
+# create final workflow object
+final_rf_wf <- workflow() %>%
+  add_recipe(model_recipe) %>%
+  add_model(rf_mod) %>%
+  finalize_workflow(rf_best_hyperparameters)
+
+# fit final workflow object
+rf_final_fit <- final_rf_wf %>%
+  fit(data = customer_retention_train)
+
+# confusion matrix
+rf_final_fit %>%
+   predict(customer_retention_test) %>%
+   bind_cols(customer_retention_test %>% select(Status)) %>%
+   conf_mat(truth = Status, estimate = .pred_class)
+```
+**Analyzed and discussed the AUC confusion matrices are analyzed and discussed:**
+
+This model excels in predicting when a customer is currently active but struggles with accurately identifying when a customer has churned. When the model mis-classifies, it tends to produce more false positives (predicting "Current" when the truth is "Left") than false negatives (predicting "Left" when the truth is "Current"). This indicates a notable bias towards predicting that a customer is still active, even when they have actually churned.
+
+
+#### Optimal model: Logistic Regression	
+
+We see that our default Logistic Regression model performs better than any previous model with an AUC 0.8460251	. A higher AUC value indicates better discriminatory power, meaning the model is better at distinguishing between the classes.
+
+**Plot the feature importance**
+```{r, message=FALSE, warning = FALSE}
+vip::vip(lr_final_fit)
+```
+
+**Features appear to be most influential in customer behavior** 
+
+* The Tenure and Contract features seem to exert the most significant influence on customer behavior when they exceed 8, followed by Total Charges when it surpasses 4.
+
+**Compute the final generalization error**
+
+```{r, message=FALSE, warning = FALSE}
+lr_final_fit %>% 
+  predict(customer_retention_test, type = "prob") %>%
+  mutate(truth = customer_retention_test$Status) %>%
+  roc_auc(truth, .pred_Current)
+```
+
+The generalization error is slightly less than the cross validation error seen in earlier results. The previous AUC is 0.8460251.
+
+**Extra learning from the observations**
+
+* We also prioritize monitoring specific aspects like *fiber optic internet service* and *electronic check payment methods*, as they rank among the top 10 most influential features. Additionally, our data visualization highlights some concerning data associated with them.
+
+### 3.Business Analysis & Conclusion
+
+**Focus factors to decrease the chances of customers leaving**
+
+In our optimal model featuring the top 10 variables, Tenure and Contract emerge as the most influential factors. Following closely are Total Charges and Paperless Billing. Next feature is payment method where our customers will choose between automaticly or using check/mail. Lastly, the internet service where people choose Fiber optic or don't have service
+
+
+Given the prominence of Tenure as the most influential variable, it's crucial for business managers to understand its implications. Offering promotions or incentives could greatly benefit Regork in terms of customer retention. Customers often leave due to pricing concerns and associated total charges, so implementing incentive programs provides them with added motivation to stay. It's essential to introduce these initiatives gradually to mitigate any immediate impact on the Finance team. However, over time, they may contribute to overall company growth by fostering customer loyalty. These promotions could be tailored specifically to the various contract divisions.
+
+**The predicted loss in revenue per month if no action is taken**
+
+If no action is taken, Regork will inevitably experience revenue loss. According to our model predictions, the projected revenue loss per month is $2,118.1
+
+It's crucial to understand that this prediction is based on our optimal model, which considers the top 10 variables influencing customer churn. From the Exploratory Data Analysis phase, we identified certain trends indicating customers likely to leave our service:
+
+* Tenure: Less than 12 months
+* Contract: Month-to-month
+* Total Charges: Less than $1000
+* Paperless Billing: Choose "No"
+* Payment Method: Electronic Check
+* Senior Citizen: Choose "0"
+* MultipleLines: Choose "No"
+* Internet Service: Customers using Fiber optic
+
+
+However, it's important to note that not all members within this filter are guaranteed to leave. After filtering this data and summing their monthly charges, we arrive at the projected revenue loss. While not all individuals within these demographics will leave the company, they are deemed to be the most likely to do so.
+
+```{r, message=FALSE, warning = FALSE}
+# Filter the data based on the specified criteria
+filtered_data <- subset(current_customers, 
+                        Tenure < 12 &
+                        Contract == "Month-to-month" &
+                        TotalCharges < 1000 &
+                        PaperlessBilling == "No" &
+                        PaymentMethod == "Electronic check" &
+                        SeniorCitizen == 0 & 
+                        MultipleLines == "No" &
+                        InternetService == "Fiber optic")
+
+# Sum up total lost 
+total_loss_month <- sum(filtered_data$MonthlyCharges)
+
+print(total_loss_month)
+```
+
+**An incentive scheme is clearly presented for retaining these customers.**
+
+To present an incentive scheme for retaining the customers identified in the filter, you could tailor promotions or offers that address the specific reasons why these customers are likely to leave. Here's a potential incentive scheme :
+
+1. **Discounted Long-Term Contracts**: Offer discounted rates for customers willing to sign longer-term contracts instead of month-to-month contracts. This could help incentivize customers to commit to the service for a longer period, reducing churn.
+
+2. **Promotional Pricing for Fiber Optic Internet**: Provide special pricing or upgrades for customers using Fiber optic internet service. This could include discounted rates or free upgrades to higher-speed plans to enhance their service experience.
+
+3. **Complimentary Online Security and Tech Support**: Offer complimentary access to online security and tech support services for a limited period. This can address concerns about security and technical assistance, providing added value to the service.
+
+4. **Payment Method Incentives**: Provide discounts or rewards for customers using alternative payment methods other than electronic checks. This could include incentives for setting up automatic payments or using credit cards for billing.
+
+5. **Device Protection Bundle**: Offer a bundled package including device protection services at a discounted rate for customers who currently do not have this service. This can help protect their devices and provide peace of mind.
+
+6. **Referral Program**: Implement a referral program where existing customers can earn rewards or discounts for referring new customers to the service. This encourages customer loyalty and can help attract new customers as well.
+
+7. **Personalized Offers**: Provide personalized offers based on individual customer preferences and usage patterns (i.e: Birthday gift). This could include targeted promotions or discounts tailored to their specific needs and interests.
+
+
+## Conclusion
+
+**Summarize the implications**
+
+* **Insight**: Customers who are more likely to leave the service exhibit certain patterns, such as having a short tenure, being on a month-to-month contract, having lower total charges and monthly charges, not utilizing online security, tech support, or online backup services, using Fiber optic internet, paying via electronic check, and not having device protection.
+
+* **Retention Strategies Based on Tenure and Contract Length**: Encouraging customers to commit to longer-term contracts (1 year, 2 years) can help reduce churn, as customers tend to stay longer when they have longer contracts.
+
+* **Payment Method Influence**: Customers who opt for bank transfer or credit card payments tend to stay longer compared to those who use electronic checks. Providing incentives to encourage alternative payment methods could help improve customer retention.
+
+* **Retention Initiatives**: Implementing retention initiatives such as discounted long-term contracts, promotional pricing for Fiber optic internet, complimentary online security and tech support, payment method incentives, device protection bundles, referral programs, and personalized offers can help retain customers and reduce churn.
+
+**The limitations and how could improve**
+Further exploration into the timing of customer departures, such as by year or month, would be valuable for enriching our dataset and conducting more in-depth analysis on the reasons behind customer churn. While we have examined some factors, I believe delving into specific reasons for leaving, as well as customer satisfaction ratings, would offer a clearer understanding. This additional information would provide a more nuanced perspective on when customers are leaving Regork and the reason driving their decisions.
+
+
+
+
